@@ -1,0 +1,248 @@
+--LOAD DEAL FUNNEL TABLE
+USE grp_gdoop_revenue_management_db;
+SET hive.exec.dynamic.partition.mode=nonstrict;
+SET hive.groupby.orderby.position.alias=true;
+INSERT OVERWRITE TABLE grp_gdoop_revenue_management_db.rev_mgmt_deal_funnel_tbl2
+PARTITION (report_date)
+SELECT
+ coalesce(es.deal_id,eo.deal_id,f.deal_id,s.deal_id,t.deal_id)                                                       as deal_id,
+ cast(wk.week_end as DATE)                                                                                           as report_week,
+coalesce(es.report_week_num,eo.report_week_num,f.report_week_num,s.report_week_num,t.report_week_num)               as report_week_num,
+ case when date_add(current_date, -1) >= cast(wk.week_end as DATE) then 1 else 0 END                                 as report_week_completed_flag,
+ coalesce(es.country,eo.country,f.country,s.country,t.country)                                                       as country,
+ case
+  when coalesce(es.traffic_source,eo.traffic_source,f.traffic_source,s.traffic_source,t.traffic_source,'Unknown') 
+   in ('unknown','Unknown','Unknown Utm','?') then 'Unknown'
+  else coalesce(es.traffic_source,eo.traffic_source,f.traffic_source,s.traffic_source,t.traffic_source,'Unknown')  
+  end                                                                                                                as traffic_source,
+ case
+  when coalesce(es.platform,eo.platform,f.platform,s.platform,t.platform) = 'desktop' then 'other'
+  else lower(coalesce(es.platform,eo.platform,f.platform,s.platform,t.platform))
+ end                                                                                                                 as platform, 
+ coalesce(es.platform_key,eo.platform_key,f.platform_key,s.platform_key,t.platform_key)                              as platform_key,
+ lower(coalesce(es.brand,eo.brand,f.brand,s.brand,t.brand,'unknown'))                                                as brand,
+ --Metrics
+ coalesce(s.site_p1_impressions,0)      as site_p1_impressions,
+ coalesce(s.site_total_impressions,0)   as site_total_impressions, 
+ coalesce(es.email_p1_sends,0)          as email_p1_sends,
+ coalesce(es.email_total_sends,0)       as email_total_sends,
+ coalesce(eo.email_p1_impressions,0)    as email_p1_impressions,
+ coalesce(eo.email_total_impressions,0) as email_total_impressions,
+ 0                                      as site_weighted_impressions,
+ 0                                      as email_weighted_impressions,
+ coalesce(t.udv,0)                      as udv,
+ coalesce(t.uadv,0)                     as uadv,
+ coalesce(f.orders,0)                   as orders,
+ coalesce(f.parent_orders,0)            as parent_orders,
+ coalesce(f.units,0)                    as units,
+ coalesce(f.zdo_orders,0)               as zdo_orders, 
+ coalesce(f.zdo_units,0)                as zdo_units, 
+ coalesce(f.nob,0)                      as nob,
+ coalesce(f.nor,0)                      as nor,
+ coalesce(f.gb,0)                       as gb,
+ coalesce(f.gr,0)                       as gr,
+ coalesce(f.refund_orders,0)            as refund_orders,
+ coalesce(f.cancel_orders,0)            as cancel_orders,
+ coalesce(f.refund_gb,0)                as refund_gb,
+ coalesce(f.cancel_gb,0)                as cancel_gb,
+ coalesce(f.od_orders,0)                as od_orders,
+ coalesce(f.od_spend,0)                 as od_spend,
+ coalesce(f.od_nob,0)                   as od_nob,
+ coalesce(f.od_nor,0)                   as od_nor,
+ coalesce(f.ils_orders,0)               as ils_orders,
+ coalesce(f.ils_spend,0)                as ils_spend,
+ coalesce(f.ils_nob,0)                  as ils_nob,
+ coalesce(f.ils_nor,0)                  as ils_nor,
+ coalesce(f.activations,0)              as activations,
+ coalesce(f.reactivations,0)            as reactivations,
+ coalesce(f.nob_activations,0)          as nob_activations,
+ coalesce(f.nor_activations,0)          as nor_activations,
+ coalesce(f.od_act_react_orders,0)      as od_act_react_orders,
+ coalesce(f.od_act_react_spend,0)       as od_act_react_spend,
+ coalesce(f.od_act_react_nob,0)         as od_act_react_nob,
+ coalesce(f.od_act_react_nor,0)         as od_act_react_nor,
+ coalesce(f.ils_act_react_orders,0)     as ils_act_react_orders,
+ coalesce(f.ils_act_react_spend,0)      as ils_act_react_spend,
+ coalesce(f.ils_act_react_nob,0)        as ils_act_react_nob,
+ coalesce(f.ils_act_react_nor,0)        as ils_act_react_nor,
+ coalesce(f.booking_fee,0)              as booking_fee,
+ coalesce(f.shipping_cost,0)            as shipping_cost,
+ coalesce(f.refund_allowance,0)         as refund_allowance,
+ coalesce(f.freight_allowance,0)        as freight_allowance,
+ coalesce(f.shipping_dollars,0)         as shipping_dollars,
+ 0                                      as ogp,
+ 0                                      as refund_ogp,
+ 0                                      as cancel_ogp,
+ coalesce(es.report_date,eo.report_date,f.report_date,s.report_date,t.report_date)  as report_date
+FROM 
+ (--Get Email Sends Data
+  select
+   coalesce(deal_id,'-1')                  as deal_id,
+   report_date                             as report_date,
+   report_week                             as report_week_num,
+   country                                 as country,
+   coalesce(initcap(traffic_source),'?')   as traffic_source,
+   'email'                                 as platform,
+   platform_key                            as platform_key,
+   coalesce(user_brand_affiliation,'?')    as brand,
+   sum(p1_sends)                           as email_p1_sends,
+   sum(total_sends)                        as email_total_sends
+ from user_edwprod.gbl_email_impression_agg_sends
+ where 
+  economic_area = 'NA'
+  and report_date between date_add(current_date,-7) and date_add(current_date,-1)
+  and platform_key in (1,2)
+ group by 1,2,3,4,5,6,7,8
+ ) es
+FULL OUTER JOIN 
+ (--Get Email Opens Data
+  select
+   coalesce(deal_id,'-1')                  as deal_id,
+   report_date                             as report_date,
+   report_week                             as report_week_num,
+   country                                 as country,
+   coalesce(initcap(traffic_source),'?')   as traffic_source,
+   'email'                                 as platform,
+   platform_key                            as platform_key,
+   coalesce(user_brand_affiliation,'?')    as brand,
+   sum(p1_sd_opens)                        as email_p1_impressions,
+   sum(total_sd_opens)                     as email_total_impressions
+  from user_edwprod.gbl_email_impression_agg_opens
+  where 
+   economic_area = 'NA'
+   and report_date between date_add(current_date,-7) and date_add(current_date,-1)
+   and platform_key in (1,2)
+  group by 1,2,3,4,5,6,7,8
+ ) eo
+   on es.deal_id = eo.deal_id
+   and es.report_date = eo.report_date
+   and es.country = eo.country
+   and es.traffic_source = eo.traffic_source
+   and es.platform = eo.platform
+   and es.platform_key = eo.platform_key
+   and es.brand = eo.brand
+FULL OUTER JOIN
+ (--Get Site Impression Data
+  select
+   coalesce(deal_id,'-1')                 as deal_id,
+   report_date                            as report_date,  
+   report_week                            as report_week_num,
+   coalesce(country_code,'?')             as country,
+   coalesce(traffic_source,'?')           as traffic_source,
+   coalesce(lower(platform),'?')          as platform,
+   platform_key_traffic                   as platform_key,
+   coalesce(user_brand_affiliation,'?')   as brand,
+   sum(p1_impressions)                    as site_p1_impressions,
+   sum(total_impressions)                 as site_total_impressions
+  from user_edwprod.agg_gbl_impressions_deal 
+   where 
+    economic_area = 'NA'
+    and report_date between date_add(current_date,-7) and date_add(current_date,-1)
+    and platform_key_traffic in (1,2)
+   group by 1,2,3,4,5,6,7,8
+ ) s
+  on s.deal_id = coalesce(es.deal_id,eo.deal_id)
+  and s.report_date = coalesce(es.report_date,eo.report_date)
+  and s.country = coalesce(es.country,eo.country)
+  and s.traffic_source = coalesce(es.traffic_source,eo.traffic_source)
+  and s.platform = coalesce(es.platform,eo.platform)
+  and s.platform_key = coalesce(es.platform_key,eo.platform_key)
+  and s.brand = coalesce(es.brand,eo.brand)
+FULL OUTER JOIN
+ (--Get Financial Data
+  select
+   coalesce(deal_id,'-1')                                                            as deal_id,
+   report_date                                                                       as report_date,
+   report_week                                                                       as report_week_num,
+   coalesce(country_code,'?')                                                        as country,
+   coalesce(traffic_source,'?')                                                      as traffic_source,
+   coalesce(platform,'?')                                                            as platform,
+   platform_key_traffic                                                              as platform_key,
+   coalesce(user_brand_affiliation,'?')                                              as brand,
+   sum(parent_orders_qty)                                                            as parent_orders,
+   sum(nob_loc*r.exchange_rate)                                                      as nob,
+   sum(nor_loc*r.exchange_rate)                                                      as nor,
+   sum(gross_bookings_loc*r.exchange_rate)                                           as gb,
+   sum(gross_revenue_loc*r.exchange_rate)                                            as gr,
+   sum(refunds_qty)                                                                  as refund_orders,
+   sum(same_day_cancel_qty)                                                          as cancel_orders,
+   sum(refunds_amt_loc*r.exchange_rate)                                              as refund_gb,
+   sum(same_day_cancel_amt_loc*r.exchange_rate)                                      as cancel_gb,
+   sum(od_qty)                                                                       as od_orders,
+   sum(od_amt_loc*r.exchange_rate)                                                   as od_spend,
+   sum(od_nob_loc*r.exchange_rate)                                                   as od_nob,
+   sum(od_nor_loc*r.exchange_rate)                                                   as od_nor,
+   sum(ils_qty)                                                                      as ils_orders,
+   sum(ils_amt_loc*r.exchange_rate)                                                  as ils_spend,
+   sum(ils_nob_loc*r.exchange_rate)                                                  as ils_nob,
+   sum(ils_nor_loc*r.exchange_rate)                                                  as ils_nor,
+   sum(est_3pl_shipping_cost_loc*r.exchange_rate)                                    as shipping_cost,
+   sum(refund_allowance_loc*r.exchange_rate)                                         as refund_allowance,
+   sum(freight_allowance_loc*r.exchange_rate)                                        as freight_allowance,
+   sum(shipping_dollars_loc*r.exchange_rate)                                         as shipping_dollars,
+   sum(coalesce(transactions,0) - coalesce(zdo_transactions,0))                      as orders,  
+   sum(coalesce(transactions_qty,0) - coalesce(zdo_transactions_qty,0))              as units, 
+   sum(coalesce(zdo_transactions,0))                                                 as zdo_orders,  
+   sum(coalesce(zdo_transactions_qty,0))                                             as zdo_units,
+   sum(booking_fee_loc*r.exchange_rate)                                              as booking_fee,  
+   sum(activations)                                                                  as activations,
+   sum(reactivations)                                                                as reactivations,
+   sum(nob_activations_loc*r.exchange_rate)                                          as nob_activations,
+   sum(nor_activations_loc*r.exchange_rate)                                          as nor_activations,
+   sum(coalesce(od_activations_qty,0) + coalesce(od_reactivations_qty,0))            as od_act_react_orders,
+   sum(coalesce(od_activations_amt_loc,0)*r.exchange_rate  + coalesce(od_reactivations_amt_loc,0)*r.exchange_rate)   as od_act_react_spend,
+   sum(coalesce(od_activations_nob_loc,0)*r.exchange_rate  + coalesce(od_reactivations_nob_loc,0)*r.exchange_rate)   as od_act_react_nob,
+   sum(coalesce(od_activations_nor_loc,0)*r.exchange_rate  + coalesce(od_reactivations_nor_loc,0)*r.exchange_rate)   as od_act_react_nor,
+   sum(coalesce(ils_activations_qty,0) + coalesce(ils_reactivations_qty,0))                                          as ils_act_react_orders,
+   sum(coalesce(ils_activations_amt_loc,0)*r.exchange_rate + coalesce(ils_reactivations_amt_loc,0)*r.exchange_rate)  as ils_act_react_spend,
+   sum(coalesce(ils_activations_nob_loc,0)*r.exchange_rate + coalesce(ils_reactivations_nob_loc,0)*r.exchange_rate)  as ils_act_react_nob,
+   sum(coalesce(ils_activations_nor_loc,0)*r.exchange_rate + coalesce(ils_reactivations_nor_loc,0)*r.exchange_rate)  as ils_act_react_nor
+  from edwprod.agg_gbl_financials_deal fd
+    join 
+     (select period_key, currency_from, approved_avg_exchange_rate as exchange_rate 
+      from user_groupondw.gbl_fact_exchange_rate 
+      where (currency_from = 'CAD' and currency_to = 'USD') or (currency_from = 'USD' and currency_to = 'USD' and country_id=235)
+     ) r 
+     on coalesce(fd.currency_code,'USD') = r.currency_from and concat(substr(fd.report_date,1,4),substr(fd.report_date,6,2)) = r.period_key --and r.country_id = o.country_id 
+  where 
+   economic_area = 'NA' 
+   and report_date between date_add(current_date,-7) and date_add(current_date,-1)
+   and platform_key_traffic in (1,2)
+  group by 1,2,3,4,5,6,7,8
+ ) f
+  on f.deal_id = coalesce(es.deal_id,eo.deal_id,s.deal_id)
+  and f.report_date = coalesce(es.report_date,eo.report_date,s.report_date)
+  and f.country = coalesce(es.country,eo.country,s.country)
+  and f.traffic_source = coalesce(es.traffic_source,eo.traffic_source,s.traffic_source)
+  and f.platform = coalesce(es.platform,eo.platform,s.platform)
+  and f.platform_key = coalesce(es.platform_key,eo.platform_key,s.platform_key)
+  and f.brand = coalesce(es.brand,eo.brand,s.brand)
+FULL OUTER JOIN
+ (--Get Traffic Data
+  select
+   coalesce(deal_id,'-1')                    as deal_id,
+   report_date                               as report_date,
+   report_week                               as report_week_num,
+   coalesce(country_code,'?')                as country,
+   coalesce(traffic_source,'?')              as traffic_source,
+   coalesce(platform,'?')                    as platform,
+   platform_key_traffic                      as platform_key,
+   coalesce(user_brand_affiliation,'?')      as brand,
+   sum(uniq_deal_view_visitors)              as udv,
+   sum(uniq_available_deal_views)            as uadv
+  from user_edwprod.agg_gbl_traffic_deal
+  where 
+   economic_area = 'NA' 
+   and report_date between date_add(current_date,-7) and date_add(current_date,-1)
+   and platform_key_traffic in (1,2)
+  group by 1,2,3,4,5,6,7,8
+ ) t
+  on t.deal_id = coalesce(es.deal_id,eo.deal_id,s.deal_id,f.deal_id)
+  and t.report_date = coalesce(es.report_date,eo.report_date,s.report_date,f.report_date)
+  and t.country = coalesce(es.country,eo.country,s.country,f.country)
+  and t.traffic_source = coalesce(es.traffic_source,eo.traffic_source,s.traffic_source,f.traffic_source)
+  and t.platform = coalesce(es.platform,eo.platform,s.platform,f.platform)
+  and t.platform_key = coalesce(es.platform_key,eo.platform_key,s.platform_key,f.platform_key)
+  and t.brand = coalesce(es.brand,eo.brand,s.brand,f.brand)
+LEFT JOIN user_groupondw.dim_day  dy on dy.day_rw = coalesce(es.report_date,eo.report_date,f.report_date,s.report_date,t.report_date)
+LEFT JOIN user_groupondw.dim_week wk on dy.week_key = wk.week_key
