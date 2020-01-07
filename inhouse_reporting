@@ -1,0 +1,29 @@
+set hive.exec.dynamic.partition.mode=nonstrict;set hive.exec.dynamic.partition=true;
+set hive.exec.max.dynamic.partitions=2048;
+set hive.exec.max.dynamic.partitions.pernode=256;
+set hive.tez.container.size=8192;
+set hive.tez.java.opts=-xmx6000m;
+set hivevar:start_date= date_add(current_date,-3);
+set hivevar:end_date=date_add(current_date,-1);
+use grp_gdoop_revenue_management_db;
+DROP TABLE grp_gdoop_revenue_management_db.in_house_events_wc_stg;
+CREATE TABLE grp_gdoop_revenue_management_db.in_house_events_wc_stg
+STORED AS ORC TBLPROPERTIES ('orc.compress'='SNAPPY')
+AS 
+SELECT 
+ evt2.*,evt2.t_jsn[" id"] as wc_id,
+ evt2.t_jsn[" messageUuid"] as wc_message_uuid,
+ evt2.t_jsn[" target"] as wc_target,
+ evt2.t_jsn[" location"] as wc_location,
+ evt2.t_jsn["message"] as wc_messages,
+ evt2.t_jsn[" title"] as wc_title 
+FROM 
+(
+ select tbl1.*, str_to_map(regexp_replace(coalesce(wc_data_json_fixed,' '),'[}{"]',''),',',':') as t_jsn
+ from
+  (select dt, session_id,user_browser_id, widget_name, widget_content_name,wc_data_json,event_id,
+    regexp_replace(regexp_replace(regexp_replace(regexp_replace(wc_data_json,'u\'','"'), '\':','":'), '\',','",'), '\'}','"}') as wc_data_json_fixed
+   from user_groupondw.bld_widget_contents
+   where dt between ${start_date} and ${end_date} and page_country = 'US'
+  ) as tbl1 
+) as evt2
